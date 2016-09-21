@@ -1,0 +1,25 @@
+<div ng-if="!req.stopped" class="visualize-spy-loading">
+    <div class="visualize-spy-loading-text">
+        Request is progress
+        &nbsp;
+        <div class="spinner"></div>
+    </div>
+</div>
+<div ng-if="preparing" class="visualize-spy-loading">
+    <div class="visualize-spy-loading-text">
+        Please, wait. Preparing your data...
+        &nbsp;
+        <div class="spinner"></div>
+    </div>
+</div>
+<div ng-if="!preparing" class="visualize-spy-loading">
+    <a ng-if="!failed &amp;&amp; result &amp;&amp; !result.empty" class="btn btn-success" href="{{result.link}}">
+        <i class="glyphicon glyphicon-download"></i> Download
+    </a>
+    <div class="visualize-spy-loading-text" ng-if="failed">
+        Sorry, an error occured while preparing your data
+    </div>
+    <div class="visualize-spy-loading-text" ng-if="result &amp;&amp; result.empty">
+        The result set is empty, nothing to download
+    </div>
+</div>

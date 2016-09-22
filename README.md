@@ -2,6 +2,13 @@
 
 This is Kibana extractor plugin. A plugin to retrieve all discovered data hit in a text file.
 
+
+
+
+![Capture.PNG](https://bitbucket.org/repo/Bn4na5/images/1877639222-Capture.PNG)
+
+
+
 ### What is this repository for? ###
 
 * Quick summary

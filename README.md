@@ -3,7 +3,7 @@
 This is Kibana extractor plugin. A plugin to retrieve all discovered data hit in a text file.
 
 
-![Alt Screenshot](/Napal-innovation/Kibana-extractor-plugin/blob/master/Capture.PNG?raw=true "Screenshot")
+![Alt Screenshot](/Capture.PNG?raw=true "Screenshot")
 
 
 

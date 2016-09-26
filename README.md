@@ -10,7 +10,7 @@ This is Kibana extractor plugin. A plugin to retrieve all discovered data hit in
 ####Installing on an Kibana :
 
 ```bash
-./bin/kibana plugin -i Napal-innovation/Kibana-extractor-plugin
+./bin/kibana plugin -i Kibana-extractor-plugin -u https://github.com/Napal-innovation/Kibana-extractor-plugin/archive/master.zip
 ```
 
 ####Installing on an Kibana local :

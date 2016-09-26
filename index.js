@@ -4,8 +4,11 @@ module.exports = function (kibana) {
 
     // Node modules
     const fs = require('fs')
+    const path = require('path')
+    const os = require('os')
     const crypto = require('crypto')
     const util = require('util')
+    const _ = require('lodash')
 
     const getResultCleaner = (function() {
         var pool = {}
@@ -39,6 +42,10 @@ module.exports = function (kibana) {
         })
     })()
 
+    const getTempFilePath = function(hashname) {
+        return util.format('%s%sesreply-%s.log', os.tmpdir(), path.sep, hashname)
+    }
+
     const getReqWrapper = (function() {
             var pool = {}
 
@@ -58,7 +65,7 @@ module.exports = function (kibana) {
                     }
 
                     this.filename = () => {
-                        return util.format('/tmp/esreply-%s.log', this.hashname())
+                        return getTempFilePath(this.hashname())
                     }
 
                     this.counter = () => {
@@ -79,6 +86,47 @@ module.exports = function (kibana) {
 
     init(server, options) {
         // Initialization goes here
+        const esc = server.plugins.elasticsearch.client
+
+        server.route({
+            path: '/api/extractor/fields',
+            method: 'GET',
+            config: {
+                timeout: {
+                    socket: false
+                },
+            },
+            handler(req, reply) {
+                esc.indices.getMapping(
+                    {
+                        index: "logstash-*"
+                    },
+                    (err, response, status) => {
+                        var fields = []
+
+                        var props_process = (props, result, name) => {
+                            _.forEach(props, (prop, pname) => {
+                                if (prop.properties) {
+                                    return props_process(prop.properties, result, !name ? pname : name + '.' + pname)
+                                }
+                                result.push(!name ? pname : name + '.' + pname)
+                            })
+                        }
+                        _.forEach(response, (index) => {
+                            _.forEach(index.mappings, (mapping) => {
+                                props_process(mapping.properties, fields)
+                            })
+                        })
+
+                        fields = _.uniq(fields)
+                        reply({
+                            fields: fields
+                        })
+                    }
+                )
+            }
+        })
+
         server.route({
             path: '/api/extractor/index',
             method: 'POST',
@@ -88,15 +136,17 @@ module.exports = function (kibana) {
                 },
             },
             handler(req, reply) {
-                const esc = server.plugins.elasticsearch.client
                 const PAGE_SIZE = 2000
                 const SCROLL_TTL = '1m'
                 const FILTER_FIELDS = ['message']
 
                 var retr_stat
+
                 var req_body = req.payload
                 req_body.size = PAGE_SIZE
-                req_body.fields = FILTER_FIELDS
+                if (!req_body.fields) {
+                    req_body.fields = FILTER_FIELDS
+                }
 
                 var hash = crypto.createHash('sha256');
                 hash.update(JSON.stringify(req_body))
@@ -111,6 +161,22 @@ module.exports = function (kibana) {
 
                 var clientDisconnected = () => {
                     wrapper.abort = true
+                }
+
+                var dsv_escape = (val) => {
+                    if (typeof(val) !== "string") {
+                        return val
+                    }
+
+                    if (val.indexOf('"') > 0) {
+                        val = val.replace('"', '""')
+                    }
+
+                    if (val.search(/["; \r\n\t]/) > 0) {
+                        val = '"' + val + '"'
+                    }
+
+                    return val
                 }
 
 //                 console.log('SEARCH REQUEST ', fhash, ' #', wrapper.counter(), 'FROM', req.info.remoteAddress)
@@ -155,8 +221,21 @@ module.exports = function (kibana) {
                         }
 
                         response.hits.hits.forEach((hit) => {
-                            if (hit.fields[FILTER_FIELDS[0]]) {
-                                fs.appendFileSync(wrapper.filename(), hit.fields[FILTER_FIELDS[0]] + '\n')
+                            var write_str = ''
+
+                            req_body.fields.forEach((field, idx) => {
+                                if (idx) {
+                                    write_str += ';'
+                                }
+
+                                if (field in hit.fields) {
+                                    write_str += dsv_escape(hit.fields[field][0])
+                                }
+                            })
+
+                            if (write_str) {
+                                fs.appendFileSync(wrapper.filename(),
+                                                  write_str + '\n')
                             }
                         })
 
@@ -177,7 +256,8 @@ module.exports = function (kibana) {
                             getResultCleaner(wrapper.filename()).update()
                             reply({
                                 empty: false,
-                                link: util.format('/extractor/retrieve/%s', wrapper.hashname()),
+                                link: util.format('/extractor/retrieve/%s',
+                                                  wrapper.hashname()),
                             })
                         }
                     }
@@ -190,7 +270,7 @@ module.exports = function (kibana) {
             method: 'GET',
             handler(req, reply) {
                 const response = req.response;
-                var fname = util.format('/tmp/esreply-%s.log', req.params.hash)
+                var fname = getTempFilePath(req.params.hash)
                 var fstream
                 const rc = getResultCleaner(fname)
 

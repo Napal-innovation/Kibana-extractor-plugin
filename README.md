@@ -7,30 +7,15 @@ This is Kibana extractor plugin. A plugin to retrieve all discovered data hit in
 
 ![Capture.PNG](https://raw.githubusercontent.com/Napal-innovation/Kibana-extractor-plugin/master/Capture.PNG)
 
+####Installing on an Kibana :
 
+```bash
+./bin/kibana plugin -i Napal-innovation/Kibana-extractor-plugin
+```
 
-### What is this repository for? ###
+####Installing on an Kibana local :
 
-* Quick summary
-* Version
-* [Learn Markdown](https://bitbucket.org/tutorials/markdowndemo)
-
-### How do I get set up? ###
-
-* Summary of set up
-* Configuration
-* Dependencies
-* Database configuration
-* How to run tests
-* Deployment instructions
-
-### Contribution guidelines ###
-
-* Writing tests
-* Code review
-* Other guidelines
-
-### Who do I talk to? ###
-
-* Repo owner or admin
-* Other community or team contact
+```bash
+git clone https://github.com/Napal-innovation/Kibana-extractor-plugin.git
+./bin/kibana plugin -i Kibana-extractor-plugin -u file://path/to/plugin
+```

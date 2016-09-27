@@ -9,6 +9,7 @@ module.exports = function (kibana) {
     const crypto = require('crypto')
     const util = require('util')
     const _ = require('lodash')
+    const zlib = require('zlib')
 
     const getResultCleaner = (function() {
         var pool = {}
@@ -42,7 +43,90 @@ module.exports = function (kibana) {
         })
     })()
 
-    const getTempFilePath = function(hashname) {
+    const ConvertorHelper = new (function () {
+        const Convertors = {
+            'gzip': new (function() {
+                const ext  = '.gz'
+                const ctype = 'application/gzip'
+
+                Object.defineProperty(this, 'extension',
+                    {
+                        get: () => {
+                            return ext
+                        },
+                    },
+                    {
+                        writable: false,
+                    }
+                )
+
+                Object.defineProperty(this, 'mimetype',
+                    {
+                        get: () => {
+                            return ctype
+                        },
+                    },
+                    {
+                        writable: false,
+                    }
+                )
+
+
+                this.convert = (fname) => {
+                    const outname = fname+ext
+                    const gzip = zlib.createGzip()
+                    const inp = fs.createReadStream(fname)
+                    const outp = fs.createWriteStream(outname)
+                    inp.pipe(gzip).pipe(outp)
+
+                    return outname
+                }
+            })()
+        }
+
+        this.convert = (hashname, convtype) => {
+            var fname = getTempFilePath(hashname)
+            var outname
+
+            if ((convtype in Convertors)) {
+                try {
+                    outname = Convertors[convtype].convert(fname)
+                    if (outname != fname) {
+                        fs.unlinkSync(fname)
+                    }
+                    fname = outname
+                } catch (e) {}
+            }
+
+            return fname
+        }
+
+        this.adjustFilePath = (fpath, convtype) => {
+            if (convtype in Convertors) {
+                fpath = fpath + Convertors[convtype].extension
+            }
+
+            return fpath
+        }
+
+        this.getExtension = (convtype) => {
+            if (convtype in Convertors) {
+                return Convertors[convtype].extension
+            }
+
+            return ''
+        }
+
+        this.getMimeType = (convtype) => {
+            if (convtype in Convertors) {
+                return Convertors[convtype].mimetype
+            }
+
+            return 'text/plain'
+        }
+    })()
+
+    const getTempFilePath = function(hashname, type) {
         return util.format('%s%sesreply-%s.log', os.tmpdir(), path.sep, hashname)
     }
 
@@ -58,14 +142,33 @@ module.exports = function (kibana) {
 
                 return new (function(countval) {
                     const count = countval
-                    var gcInterval
+                    const hashname = util.format('%s-%d', hash, count)
+                    var filename = getTempFilePath(hashname)
 
-                    this.hashname = () => {
-                        return util.format('%s-%d', hash, count)
-                    }
+                    Object.defineProperty(this, 'hashname',
+                        {
+                            get: () =>  {
+                                return hashname
+                            },
+                        },
+                        {
+                            writable: false,
+                        }
+                    )
 
-                    this.filename = () => {
-                        return getTempFilePath(this.hashname())
+                    Object.defineProperty(this, 'filename',
+                        {
+                            get: () => {
+                                return filename
+                            },
+                        },
+                        {
+                            writable: false,
+                        }
+                    )
+
+                    this.updateName = (convtype) => {
+                        return filename + ConvertorHelper.getExtension(convtype)
                     }
 
                     this.counter = () => {
@@ -128,7 +231,7 @@ module.exports = function (kibana) {
         })
 
         server.route({
-            path: '/api/extractor/index',
+            path: '/api/extractor/{type}',
             method: 'POST',
             config: {
                 timeout: {
@@ -139,6 +242,7 @@ module.exports = function (kibana) {
                 const PAGE_SIZE = 2000
                 const SCROLL_TTL = '1m'
                 const FILTER_FIELDS = ['message']
+                const convtype = req.params.type
 
                 var retr_stat
 
@@ -156,7 +260,7 @@ module.exports = function (kibana) {
 
                 var abortSearch = () => {
 //                     console.log('Aborted request ', fhash, ' #', wrapper.counter(), 'FROM', req.info.remoteAddress)
-                    fs.unlinkSync(wrapper.filename())
+                    fs.unlinkSync(wrapper.filename)
                 }
 
                 var clientDisconnected = () => {
@@ -169,7 +273,7 @@ module.exports = function (kibana) {
                     }
 
                     if (val.indexOf('"') > 0) {
-                        val = val.replace('"', '""')
+                        val = val.replace(/"/g, '""')
                     }
 
                     if (val.search(/["; \r\n\t]/) > 0) {
@@ -203,7 +307,7 @@ module.exports = function (kibana) {
                                 current: 1
                             }
                             try {
-                                fs.unlinkSync(wrapper.filename())
+                                fs.unlinkSync(wrapper.filename)
                             } catch (e) {
                                 // do nothing, continue
                             }
@@ -234,7 +338,7 @@ module.exports = function (kibana) {
                             })
 
                             if (write_str) {
-                                fs.appendFileSync(wrapper.filename(),
+                                fs.appendFileSync(wrapper.filename,
                                                   write_str + '\n')
                             }
                         })
@@ -253,11 +357,16 @@ module.exports = function (kibana) {
                         }
 
                         if (retr_stat.pages == retr_stat.current) {
-                            getResultCleaner(wrapper.filename()).update()
+                            var convname = ConvertorHelper.convert(wrapper.hashname, convtype)
+
+                            if (convname  != wrapper.filename) {
+                                wrapper.updateName(convtype)
+                            }
+                            getResultCleaner(wrapper.filename).update()
                             reply({
                                 empty: false,
-                                link: util.format('/extractor/retrieve/%s',
-                                                  wrapper.hashname()),
+                                link: util.format('/extractor/retrieve/%s/%s',
+                                                  wrapper.hashname, convtype),
                             })
                         }
                     }
@@ -266,11 +375,15 @@ module.exports = function (kibana) {
         })
 
         server.route({
-            path: '/extractor/retrieve/{hash}',
+            path: '/extractor/retrieve/{hash}/{type}',
             method: 'GET',
             handler(req, reply) {
                 const response = req.response;
                 var fname = getTempFilePath(req.params.hash)
+                const convtype = req.params.type
+                fname = ConvertorHelper.adjustFilePath(fname, convtype)
+                const fext = ConvertorHelper.getExtension(convtype)
+
                 var fstream
                 const rc = getResultCleaner(fname)
 
@@ -287,9 +400,11 @@ module.exports = function (kibana) {
                 }
 
                 rc.clear()
-                reply(fstream).type('text/plain').header(
+                reply(fstream).type(
+                    ConvertorHelper.getMimeType(convtype)
+                ).header(
                     'Content-Disposition',
-                    'attachment; filename="extract.log"'
+                    util.format('attachment; filename="extract.log%s"', fext)
                 ).once('finish', () => {
                     rc.update()
                 })
